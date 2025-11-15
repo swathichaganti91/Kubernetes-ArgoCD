@@ -1,0 +1,113 @@
+pipeline {
+  agent any
+
+  parameters {
+    string(name: "App_Version", defaultValue: "1.0.0", description: "provide application version")
+  }
+
+  environment {
+    DOCKERHUB_CREDENTIALS = credentials("dockerhub")
+    AWS_ACCESS_KEY_ID = "####"
+    AWS_SECRET_ACCESS_KEY = "#####"
+    AWS_DEFAULT_REGION = 'ap-south-1'
+  }
+
+  stages {
+    stage("Repo Clone") {
+      steps {
+        git branch: 'master', url: 'https://github.com/shivagande26/DataStore.git'
+      }
+    }
+    stage("Maven Build") {
+      steps {
+        sh """
+            echo "-------- Building Application --------"
+            mvn clean package
+            echo "------- Application Built Successfully --------"
+        """
+      }
+    }
+    stage("Maven Test") {
+      steps {
+        sh """
+          echo "-------- Executing Testcases --------"
+          mvn test
+          echo "-------- Testcases Execution Complete --------"
+        """
+      }
+    }
+    stage("Artifact Store") {
+      steps {
+        sh """
+          echo "-------- Pushing Artifacts To S3 --------"
+          aws s3 cp ./target/datastore-0.0.5.jar s3://swathikubernetesbucket/
+          echo "-------- Pushing Artifacts To S3 Completed --------"
+        """
+      }
+    }
+    stage("Docker Image Build") {
+      steps {
+        sh """
+          echo "-------- Building Docker Image --------"
+          docker build -t datastore:${params.App_Version} .
+          echo "-------- Image Successfully Built --------"
+        """
+      }
+    }
+    // stage("Docker Image Scan") {
+    //   steps {
+    //     sh """
+    //       echo "-------- Scanning Docker Image --------"
+    //       trivy image \
+    //         --skip-db-update \
+    //         --skip-java-db-update \
+    //         --exit-code 0 \
+    //         datastore:${params.App_Version}
+    //       echo "-------- Scanning Docker Image Complete --------"
+    //     """
+    //   }
+    // }
+    stage("Docker Image Tag") {
+      steps {
+        sh """
+          echo "-------- Tagging Docker Image --------"
+          docker tag datastore:${params.App_Version} swathichaganti91/datastore:${params.App_Version}
+          echo "-------- Tagging Docker Image Completed."
+        """
+      }
+    }
+    stage("Loggingin & Pushing Docker image") {
+      steps {
+        sh """
+          echo "-------- Logging To DockerHub --------"
+          docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
+          echo "-------- DockerHub Login Successful --------"
+
+          echo "-------- Pushing Docker Image To DockerHub --------"
+          docker push swathichaganti91/datastore:${params.App_Version}
+          echo "-------- Docker Image Pushed Successfully --------"
+        """
+      }
+    }
+    stage("cleanup") {
+      steps {
+        sh """
+           echo "-------- Cleaning Up Jenkins Machine --------"
+           docker image prune -a -f
+           echo "-------- Clean Up Successful --------"
+        """
+      }
+    }
+    stage("Deployment Acceptance") {
+      steps {
+        input message: 'Proceed with deployment?', ok: 'Deploy'
+      }
+    }
+     stage("Triggering Deployment Job") {
+      steps {
+        build job: "downstream", parameters: [string(name: "App_Name", value: "datastore-deploy"), string(name: "App_Version", value: "${params.App_Version}")]
+      }
+    }
+
+  }
+}
