@@ -1,0 +1,74 @@
+pipeline {
+    agent any
+    environment {
+        GITHUB_TOKEN = credentials("GITHUB_TOKEN")
+    }
+    parameters {
+        string(name: "App_Name", description: "application name that need to be deployed")
+        string(name: "App_Version", description: "version of the application that need to be deployed")
+    }
+    stages {
+        stage("cloning repo") {
+            steps {
+                checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/swathichaganti91/Kubernetes-ArgoCD.git']])
+            }
+        }
+        stage("updating image version in a file") {
+            steps {
+                sh """
+                  echo "-------- Updating File Content --------"
+                  cd "${params.App_Name}"
+                  sed -i 's|image:.*|image: swathichaganti91/datastore:${params.App_Version}|g' "${params.App_Name}".yaml
+                  echo "-------- File Content Updated Successfully --------"
+                """
+            }
+        }
+        stage("pushing code to github") {
+            steps {
+                sh """
+                  echo "-------- Pushing Changes To GitHub --------"
+                  git config --global user.email "jenkins@example.com"
+                  git config --global user.name "Jenkins"
+                  git add .
+                  git commit -am "docker image updated to ${params.App_Version}"
+                  git push https://$GITHUB_TOKEN@github.com/swathichaganti91/Kubernetes-ArgoCD.git HEAD:main
+                  echo "-------- Pushed Changes Successfully --------"
+                """
+            }
+        }
+    }
+    post {
+        success {
+            slackSend (
+                channel: '#jenkins1',
+                color: 'good',
+                message: "✅ SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}\nApplication: ${params.App_Name} v${params.App_Version}",
+                tokenCredentialId: 'slack'
+            )
+        }
+        failure {
+            slackSend (
+                channel: '#jenkins1',
+                color: 'danger',
+                message: "❌ FAILURE: ${env.JOB_NAME} #${env.BUILD_NUMBER}\nApplication: ${params.App_Name} v${params.App_Version}",
+                tokenCredentialId: 'slack'
+            )
+        }
+        unstable {
+            slackSend (
+                channel: '#jenkins1',
+                color: 'warning',
+                message: "⚠️ UNSTABLE: ${env.JOB_NAME} #${env.BUILD_NUMBER}\nApplication: ${params.App_Name} v${params.App_Version}",
+                tokenCredentialId: 'slack'
+            )
+        }
+        aborted {
+            slackSend (
+                channel: '#jenkins1',
+                color: '#808080',
+                message: "⛔ ABORTED: ${env.JOB_NAME} #${env.BUILD_NUMBER}\nApplication: ${params.App_Name} v${params.App_Version}",
+                tokenCredentialId: 'slack'
+            )
+        }
+    }
+}
