@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
         - name: mywebapp
-          image: swathichaganti91/jenkins:2.0.0
+          image: swathichaganti91/datastore:v1
   replicas: 3
   selector:
     matchLabels:
